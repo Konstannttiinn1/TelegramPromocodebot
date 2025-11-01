@@ -1,0 +1,4 @@
+aiofiles==23.2.1
+aiogram==3.12.0
+pydantic==2.8.2
+python-dotenv==1.0.1
