@@ -10,6 +10,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode, ChatType
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
+from aiogram.utils.token import TokenValidationError, validate_token
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
 )
@@ -29,6 +30,18 @@ SEND_PM_ON_REPEAT = os.getenv("SEND_PM_ON_REPEAT", "TRUE").upper() in ("1", "TRU
 # Разнести «чат загрузки» и «чат выдачи» через .env (по желанию)
 ENV_INPUT_CHAT_ID = int(os.getenv("INPUT_CHAT_ID", "0") or 0)
 ENV_OUTPUT_CHAT_ID = int(os.getenv("OUTPUT_CHAT_ID", "0") or 0)
+
+if not BOT_TOKEN:
+    raise SystemExit(
+        "Отсутствует BOT_TOKEN. Укажите токен бота в .env (строка вида BOT_TOKEN=123456:ABCDEF)."
+    )
+
+try:
+    validate_token(BOT_TOKEN)
+except TokenValidationError as exc:
+    raise SystemExit(
+        "Некорректный BOT_TOKEN. Проверьте значение в .env (формат 123456:ABCDEF)."
+    ) from exc
 
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
