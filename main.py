@@ -10,6 +10,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode, ChatType
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
+from aiogram.utils.token import TokenValidationError, validate_token
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
 )
@@ -29,6 +30,18 @@ SEND_PM_ON_REPEAT = os.getenv("SEND_PM_ON_REPEAT", "TRUE").upper() in ("1", "TRU
 # Разнести «чат загрузки» и «чат выдачи» через .env (по желанию)
 ENV_INPUT_CHAT_ID = int(os.getenv("INPUT_CHAT_ID", "0") or 0)
 ENV_OUTPUT_CHAT_ID = int(os.getenv("OUTPUT_CHAT_ID", "0") or 0)
+
+if not BOT_TOKEN:
+    raise SystemExit(
+        "Отсутствует BOT_TOKEN. Укажите токен бота в .env (строка вида BOT_TOKEN=123456:ABCDEF)."
+    )
+
+try:
+    validate_token(BOT_TOKEN)
+except TokenValidationError as exc:
+    raise SystemExit(
+        "Некорректный BOT_TOKEN. Проверьте значение в .env (формат 123456:ABCDEF)."
+    ) from exc
 
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -94,13 +107,6 @@ def init_db():
     with closing(db()) as conn:
         conn.executescript(SCHEMA)
 
-        async def main():
-            global BOT_USERNAME
-            init_db()
-            migrate_unique_per_batch()  # ← добавь эту строку
-            me = await bot.get_me()
-            ...
-
 def migrate_unique_per_batch():
     """Делаем уникальность кодов не глобально, а внутри одной партии (batch)."""
     with closing(db()) as conn:
@@ -135,15 +141,6 @@ def get_target_chats(conn: sqlite3.Connection, message: Message) -> Tuple[int, i
     row = conn.execute("SELECT chat_id FROM admin_bindings WHERE user_id=?", (message.from_user.id,)).fetchone()
     chat_id = row[0] if row else 0
     return chat_id, chat_id
-
-
-@dp.message(Command("start"))
-async def cmd_start(message: Message):
-    await message.reply(
-        ("Привет! Я бот для раздачи промокодов.","Админ: загрузите коды <code>/codes AAA,BBB,CCC</code> и отправьте <code>/post</code>."
-            "Можно работать через .env (INPUT/OUTPUT_CHAT_ID) или привязать чат командой <code>/bind</code>."
-        )
-    )
 
 
 @dp.message(Command("bind"))
@@ -288,45 +285,51 @@ async def cmd_post(message: Message):
 
 
 def _get_or_assign_code(user_id: int, drop_id: int):
-    conn = db()
-    # Уже получал в этом дропе?
-    got = conn.execute(
-        "SELECT c.id, c.code FROM claims cl JOIN codes c ON c.id=cl.code_id WHERE cl.user_id=? AND cl.drop_id=?",
-        (user_id, drop_id),
-    ).fetchone()
-    if got:
-        return got[0], got[1]
-
-    # Иначе пробуем выдать новый
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        row = conn.execute(
-            "SELECT c.id, c.code FROM drop_codes dc JOIN codes c ON c.id=dc.code_id "
-            "WHERE dc.drop_id=? AND c.used_by IS NULL AND dc.assigned_user_id IS NULL LIMIT 1",
-            (drop_id,),
+    with closing(db()) as conn:
+        # Уже получал в этом дропе?
+        got = conn.execute(
+            "SELECT c.id, c.code FROM claims cl JOIN codes c ON c.id=cl.code_id WHERE cl.user_id=? AND cl.drop_id=?",
+            (user_id, drop_id),
         ).fetchone()
-        if not row:
+        if got:
+            return got[0], got[1]
+
+        # Иначе пробуем выдать новый
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(
+                "SELECT c.id, c.code FROM drop_codes dc JOIN codes c ON c.id=dc.code_id "
+                "WHERE dc.drop_id=? AND c.used_by IS NULL AND dc.assigned_user_id IS NULL LIMIT 1",
+                (drop_id,),
+            ).fetchone()
+            if not row:
+                conn.execute("COMMIT")
+                return 0, None
+            code_id, code_val = int(row[0]), row[1]
+            now = datetime.now(timezone.utc).isoformat()
+            upd1 = conn.execute(
+                "UPDATE codes SET used_by=?, used_at=? WHERE id=? AND used_by IS NULL",
+                (user_id, now, code_id),
+            )
+            if upd1.rowcount != 1:
+                conn.execute("ROLLBACK")
+                return 0, None
+            upd2 = conn.execute(
+                "UPDATE drop_codes SET assigned_user_id=?, assigned_at=? WHERE drop_id=? AND code_id=? AND assigned_user_id IS NULL",
+                (user_id, now, drop_id, code_id),
+            )
+            if upd2.rowcount != 1:
+                conn.execute("ROLLBACK")
+                return 0, None
+            conn.execute(
+                "INSERT INTO claims(user_id, drop_id, code_id, claimed_at) VALUES(?, ?, ?, ?)",
+                (user_id, drop_id, code_id, now),
+            )
             conn.execute("COMMIT")
-            return 0, None
-        code_id, code_val = int(row[0]), row[1]
-        now = datetime.now(timezone.utc).isoformat()
-        upd1 = conn.execute("UPDATE codes SET used_by=?, used_at=? WHERE id=? AND used_by IS NULL", (user_id, now, code_id))
-        if upd1.rowcount != 1:
+            return code_id, code_val
+        except Exception:
             conn.execute("ROLLBACK")
             return 0, None
-        upd2 = conn.execute(
-            "UPDATE drop_codes SET assigned_user_id=?, assigned_at=? WHERE drop_id=? AND code_id=? AND assigned_user_id IS NULL",
-            (user_id, now, drop_id, code_id),
-        )
-        if upd2.rowcount != 1:
-            conn.execute("ROLLBACK")
-            return 0, None
-        conn.execute("INSERT INTO claims(user_id, drop_id, code_id, claimed_at) VALUES(?, ?, ?, ?)", (user_id, drop_id, code_id, now))
-        conn.execute("COMMIT")
-        return code_id, code_val
-    except Exception:
-        conn.execute("ROLLBACK")
-        return 0, None
 
 
 @dp.message(Command("start"))
@@ -372,36 +375,17 @@ async def on_get_code(cb: CallbackQuery):
     if code_id == 0 and code_val is None:
         return await cb.answer("Промокоды закончились. Попробуйте позже.", show_alert=True)
 
-    await cb.answer("Нажмите кнопку «📩 В личку» под постом — откроется чат с ботом и код придёт там.", show_alert=True)
+    extra_alert_note = ""
 
     if SEND_PM_ON_REPEAT:
         try:
             await bot.send_message(user_id, f"Ваш промокод: <code>{code_val}</code>")
         except Exception:
-            if BOT_USERNAME:
-                link = f"https://t.me/{BOT_USERNAME}?start=claim_{drop_id}"
-                await cb.answer(f"Откройте ЛС с ботом: {link}", show_alert=True)
+            extra_alert_note = (
+                "\n\nНажмите кнопку «📩 В личку» под постом — откроется чат с ботом и код придёт там."
+            )
 
-
-@dp.callback_query(F.data.startswith("pm:"))
-async def on_pm(cb: CallbackQuery):
-    drop_id = int(cb.data.split(":", 1)[1])
-    user_id = cb.from_user.id
-    with closing(db()) as conn:
-        row = conn.execute(
-            "SELECT c.code FROM claims cl JOIN codes c ON c.id=cl.code_id WHERE cl.user_id=? AND cl.drop_id=?",
-            (user_id, drop_id),
-        ).fetchone()
-    if not row:
-        return await cb.answer("Сначала получите код кнопкой 🎁.", show_alert=True)
-    code_val = row[0]
-    try:
-        await bot.send_message(user_id, f"Ваш промокод: <code>{code_val}</code>")
-        await cb.answer("Отправил в личку.", show_alert=True)
-    except Exception:
-        if BOT_USERNAME:
-            link = f"https://t.me/{BOT_USERNAME}?start=claim_{drop_id}"
-            await cb.answer(f"Откройте ЛС с ботом: {link}", show_alert=True)
+    await cb.answer(f"Ваш промокод: {code_val}{extra_alert_note}", show_alert=True)
 
 
 @dp.message(Command("left"))
@@ -456,12 +440,15 @@ async def cmd_report(message: Message):
         parts.append("<b>Свободные:</b>")
         parts.extend([f"• <code>{r[0]}</code>" for r in free[:200]])
         if len(free) > 200:
-            parts.append(f"…и ещё {len(free)-200}"), await message.answer("".join(parts))
+            parts.append(f"…и ещё {len(free)-200}")
+
+    await message.answer("".join(parts))
 
 
 async def main():
     global BOT_USERNAME
     init_db()
+    migrate_unique_per_batch()
     me = await bot.get_me()
     BOT_USERNAME = me.username
     print("Bot is running…")
