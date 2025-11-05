@@ -1,7 +1,7 @@
 import asyncio
 import os
 import sqlite3
-from contextlib import closing
+from contextlib import closing, suppress
 from datetime import datetime, timezone
 from typing import Tuple, Optional
 from html import escape
