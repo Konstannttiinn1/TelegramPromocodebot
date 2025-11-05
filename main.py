@@ -4,6 +4,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from typing import Tuple, Optional
+from html import escape
 import re
 
 from aiogram import Bot, Dispatcher, F
@@ -12,7 +13,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
 from aiogram.utils.token import TokenValidationError, validate_token
 from aiogram.types import (
-    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    User,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
@@ -70,6 +75,10 @@ CREATE TABLE IF NOT EXISTS drops (
   chat_id INTEGER NOT NULL,
   message_id INTEGER NOT NULL,
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS drop_sources (
+  drop_id INTEGER PRIMARY KEY,
+  source_chat_id INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS drop_codes (
   drop_id INTEGER NOT NULL,
@@ -242,8 +251,13 @@ async def cmd_post(message: Message):
     if not await is_admin(message):
         return await message.reply("Команда доступна только администраторам.")
 
-    post_text = message.text.split(maxsplit=1)
-    body = post_text[1] if len(post_text) > 1 else "🎉 Промо-акция! Нажми кнопку ниже, чтобы получить личный промокод."
+    raw_text = (message.text or message.caption or "").split(maxsplit=1)
+    body = (
+        raw_text[1]
+        if len(raw_text) > 1
+        else "🎉 Промо-акция! Нажми кнопку ниже, чтобы получить личный промокод."
+    )
+    photo_id = message.photo[-1].file_id if message.photo else None
 
     with closing(db()) as conn:
         input_chat_id, output_chat_id = get_target_chats(conn, message)
@@ -259,7 +273,15 @@ async def cmd_post(message: Message):
             return await message.reply("Сначала загрузите коды: <code>/codes AAA,BBB</code>")
         pending_batch_id = int(row[0])
 
-        sent = await bot.send_message(output_chat_id, body, reply_markup=make_drop_keyboard(0))
+        if photo_id:
+            sent = await bot.send_photo(
+                output_chat_id,
+                photo=photo_id,
+                caption=body,
+                reply_markup=make_drop_keyboard(0),
+            )
+        else:
+            sent = await bot.send_message(output_chat_id, body, reply_markup=make_drop_keyboard(0))
 
         now = datetime.now(timezone.utc).isoformat()
         cur = conn.execute(
@@ -268,7 +290,16 @@ async def cmd_post(message: Message):
         )
         drop_id = cur.lastrowid
 
-        await bot.edit_message_reply_markup(chat_id=sent.chat.id, message_id=sent.message_id, reply_markup=make_drop_keyboard(drop_id))
+        await bot.edit_message_reply_markup(
+            chat_id=sent.chat.id,
+            message_id=sent.message_id,
+            reply_markup=make_drop_keyboard(drop_id),
+        )
+
+        conn.execute(
+            "INSERT OR REPLACE INTO drop_sources(drop_id, source_chat_id) VALUES(?, ?)",
+            (drop_id, message.chat.id),
+        )
 
         code_rows = conn.execute(
             "SELECT id FROM codes WHERE batch_id=? AND used_by IS NULL",
@@ -292,6 +323,7 @@ def _get_or_assign_code(user_id: int, drop_id: int):
             (user_id, drop_id),
         ).fetchone()
         if got:
+            return got[0], got[1], False
             return got[0], got[1]
 
         # Иначе пробуем выдать новый
@@ -304,6 +336,7 @@ def _get_or_assign_code(user_id: int, drop_id: int):
             ).fetchone()
             if not row:
                 conn.execute("COMMIT")
+                return 0, None, False
                 return 0, None
             code_id, code_val = int(row[0]), row[1]
             now = datetime.now(timezone.utc).isoformat()
@@ -313,6 +346,7 @@ def _get_or_assign_code(user_id: int, drop_id: int):
             )
             if upd1.rowcount != 1:
                 conn.execute("ROLLBACK")
+                return 0, None, False
                 return 0, None
             upd2 = conn.execute(
                 "UPDATE drop_codes SET assigned_user_id=?, assigned_at=? WHERE drop_id=? AND code_id=? AND assigned_user_id IS NULL",
@@ -320,12 +354,45 @@ def _get_or_assign_code(user_id: int, drop_id: int):
             )
             if upd2.rowcount != 1:
                 conn.execute("ROLLBACK")
+                return 0, None, False
                 return 0, None
             conn.execute(
                 "INSERT INTO claims(user_id, drop_id, code_id, claimed_at) VALUES(?, ?, ?, ?)",
                 (user_id, drop_id, code_id, now),
             )
             conn.execute("COMMIT")
+            return code_id, code_val, True
+        except Exception:
+            conn.execute("ROLLBACK")
+            return 0, None, False
+
+
+def resolve_report_chat(drop_id: int) -> int:
+    with closing(db()) as conn:
+        row = conn.execute(
+            "SELECT source_chat_id FROM drop_sources WHERE drop_id=?",
+            (drop_id,),
+        ).fetchone()
+        if row and row[0]:
+            return int(row[0])
+    return 0
+
+
+async def send_claim_report(drop_id: int, user: User, code_val: str):
+    report_chat_id = resolve_report_chat(drop_id)
+    if not report_chat_id or not code_val:
+        return
+    full_name = user.full_name or "Пользователь"
+    mention = f'<a href="tg://user?id={user.id}">{escape(full_name)}</a>'
+    username = f" (@{user.username})" if user.username else ""
+    text = (
+        f"Код <code>{escape(str(code_val))}</code> выдан {mention}{username}. "
+        f"ID: <code>{user.id}</code>. Дроп #{drop_id}."
+    )
+    try:
+        await bot.send_message(report_chat_id, text)
+    except Exception:
+        pass
             return code_id, code_val
         except Exception:
             conn.execute("ROLLBACK")
@@ -352,10 +419,15 @@ async def cmd_start(message: Message):
             return await message.answer("Некорректная ссылка.")
         user_id = message.from_user.id
         loop = asyncio.get_running_loop()
-        code_id, code_val = await loop.run_in_executor(None, _get_or_assign_code, user_id, drop_id)
+        code_id, code_val, assigned_now = await loop.run_in_executor(
+            None, _get_or_assign_code, user_id, drop_id
+        )
         if not code_val:
             return await message.answer("Промокоды закончились или недоступны.")
-        return await message.answer(f"Ваш промокод: <code>{code_val}</code>")
+        if assigned_now:
+            await send_claim_report(drop_id, message.from_user, code_val)
+        safe_code = escape(str(code_val))
+        return await message.answer(f"Ваш промокод: <code>{safe_code}</code>")
 
 @dp.callback_query(F.data.startswith("get:"))
 async def on_get_code(cb: CallbackQuery):
@@ -371,19 +443,24 @@ async def on_get_code(cb: CallbackQuery):
 
     # Выдачу кода выполняем в threadpool, но уже с отдельным соединением внутри функции
     loop = asyncio.get_running_loop()
-    code_id, code_val = await loop.run_in_executor(None, _get_or_assign_code, user_id, drop_id)
+    code_id, code_val, assigned_now = await loop.run_in_executor(
+        None, _get_or_assign_code, user_id, drop_id
+    )
     if code_id == 0 and code_val is None:
         return await cb.answer("Промокоды закончились. Попробуйте позже.", show_alert=True)
 
     extra_alert_note = ""
 
-    if SEND_PM_ON_REPEAT:
+    if SEND_PM_ON_REPEAT and code_val:
         try:
-            await bot.send_message(user_id, f"Ваш промокод: <code>{code_val}</code>")
+            await bot.send_message(user_id, f"Ваш промокод: <code>{escape(str(code_val))}</code>")
         except Exception:
             extra_alert_note = (
                 "\n\nНажмите кнопку «📩 В личку» под постом — откроется чат с ботом и код придёт там."
             )
+
+    if assigned_now and code_val:
+        await send_claim_report(drop_id, cb.from_user, code_val)
 
     await cb.answer(f"Ваш промокод: {code_val}{extra_alert_note}", show_alert=True)
 
