@@ -324,10 +324,11 @@ def _get_or_assign_code(user_id: int, drop_id: int):
         ).fetchone()
         if got:
             return got[0], got[1], False
+            return got[0], got[1]
 
         # Иначе пробуем выдать новый
+        conn.execute("BEGIN IMMEDIATE")
         try:
-            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT c.id, c.code FROM drop_codes dc JOIN codes c ON c.id=dc.code_id "
                 "WHERE dc.drop_id=? AND c.used_by IS NULL AND dc.assigned_user_id IS NULL LIMIT 1",
@@ -336,7 +337,7 @@ def _get_or_assign_code(user_id: int, drop_id: int):
             if not row:
                 conn.execute("COMMIT")
                 return 0, None, False
-
+                return 0, None
             code_id, code_val = int(row[0]), row[1]
             now = datetime.now(timezone.utc).isoformat()
             upd1 = conn.execute(
@@ -344,19 +345,17 @@ def _get_or_assign_code(user_id: int, drop_id: int):
                 (user_id, now, code_id),
             )
             if upd1.rowcount != 1:
-                with suppress(sqlite3.Error):
-                    conn.execute("ROLLBACK")
+                conn.execute("ROLLBACK")
                 return 0, None, False
-
+                return 0, None
             upd2 = conn.execute(
                 "UPDATE drop_codes SET assigned_user_id=?, assigned_at=? WHERE drop_id=? AND code_id=? AND assigned_user_id IS NULL",
                 (user_id, now, drop_id, code_id),
             )
             if upd2.rowcount != 1:
-                with suppress(sqlite3.Error):
-                    conn.execute("ROLLBACK")
+                conn.execute("ROLLBACK")
                 return 0, None, False
-
+                return 0, None
             conn.execute(
                 "INSERT INTO claims(user_id, drop_id, code_id, claimed_at) VALUES(?, ?, ?, ?)",
                 (user_id, drop_id, code_id, now),
@@ -364,8 +363,7 @@ def _get_or_assign_code(user_id: int, drop_id: int):
             conn.execute("COMMIT")
             return code_id, code_val, True
         except Exception:
-            with suppress(sqlite3.Error):
-                conn.execute("ROLLBACK")
+            conn.execute("ROLLBACK")
             return 0, None, False
 
 
@@ -395,6 +393,10 @@ async def send_claim_report(drop_id: int, user: User, code_val: str):
         await bot.send_message(report_chat_id, text)
     except Exception:
         pass
+            return code_id, code_val
+        except Exception:
+            conn.execute("ROLLBACK")
+            return 0, None
 
 
 @dp.message(Command("start"))
