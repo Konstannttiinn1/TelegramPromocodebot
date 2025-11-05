@@ -393,11 +393,6 @@ async def send_claim_report(drop_id: int, user: User, code_val: str):
         await bot.send_message(report_chat_id, text)
     except Exception:
         pass
-            return code_id, code_val
-        except Exception:
-            conn.execute("ROLLBACK")
-            return 0, None
-
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
