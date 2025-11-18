@@ -7,7 +7,7 @@
   </a>
 </p>
 
-<br>
+---
 
 # Telegram PromoCode Bot
 
@@ -51,8 +51,6 @@ ADMIN_IDS=12345
 GLOBAL_ONE_PER_USER=False
 SEND_PM_ON_REPEAT=True
 DB_PATH=promo_bot.sqlite3
-INPUT_CHAT_ID=
-OUTPUT_CHAT_ID=
 
 git clone <repo>
 cd TelegramPromocodebot
@@ -74,7 +72,6 @@ dotenv
 MIT — свободное использование и модификация разрешены.
 
 
-<br>
 
 🇬🇧 English Version
 ✨ Features
@@ -101,6 +98,8 @@ Command	Description
 /report	Report for the last drop
 /bind	Bind the group (if not set in .env)
 
+
+⚙️ .env Example
 BOT_TOKEN=123:ABC
 ADMIN_IDS=12345
 GLOBAL_ONE_PER_USER=False
@@ -108,6 +107,7 @@ SEND_PM_ON_REPEAT=True
 DB_PATH=promo_bot.sqlite3
 INPUT_CHAT_ID=
 OUTPUT_CHAT_ID=
+
 
 git clone <repo>
 cd TelegramPromocodebot
