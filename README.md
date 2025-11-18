@@ -1,3 +1,14 @@
+<p align="center">
+  <a href="#-русская-версия">
+    <img src="https://img.shields.io/badge/🇷🇺 Русская%20версия-blue?style=for-the-badge">
+  </a>
+  <a href="#-english-version">
+    <img src="https://img.shields.io/badge/🇬🇧 English%20Version-green?style=for-the-badge">
+  </a>
+</p>
+
+<br>
+
 # Telegram PromoCode Bot
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
@@ -5,10 +16,9 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![SQLite](https://img.shields.io/badge/SQLite-Automated-lightgrey?logo=sqlite)
 
-Телеграм-бот для розыгрышей, дропов и автоматической раздачи промокодов.  
-Минимум команд — максимум эффективности.
-
 ---
+
+# 🇷🇺 Русская версия
 
 ## ✨ Возможности
 - Добавление пулов промокодов  
@@ -29,7 +39,7 @@
 | `/post <текст>` | Опубликовать дроп |
 | `/left` | Показать оставшиеся коды |
 | `/report` | Отчёт по последнему дропу |
-| `/bind` | Привязать группу, если нет указания в .env |
+| `/bind` | Привязать группу (если нет указания в .env) |
 
 ---
 
@@ -43,7 +53,6 @@ SEND_PM_ON_REPEAT=True
 DB_PATH=promo_bot.sqlite3
 INPUT_CHAT_ID=
 OUTPUT_CHAT_ID=
-
 
 git clone <repo>
 cd TelegramPromocodebot
@@ -65,49 +74,32 @@ dotenv
 MIT — свободное использование и модификация разрешены.
 
 
+<br>
+🇬🇧 English Version
+✨ Features
 
----
+Import batches of promo codes
 
-# 🇬🇧 **English Version**
-```md
-# Telegram PromoCode Bot
+Publish a “drop” with a claim button
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
-![Aiogram](https://img.shields.io/badge/Aiogram-3.x-0A84FF?logo=telegram)
-![License](https://img.shields.io/badge/License-MIT-green)
-![SQLite](https://img.shields.io/badge/SQLite-Automated-lightgrey?logo=sqlite)
+Unique code for each user
 
-Telegram bot for giveaways, drops, and automated promo code distribution.  
-Minimal commands — maximum efficiency.
+Optional global limit (1 code per user for all drops)
 
----
+Automatic logging and reporting
 
-## ✨ Features
-- Import batches of promo codes  
-- Publish a “drop” with a claim button  
-- Unique code for each user  
-- Optional: global one-code-per-user limit (GLOBAL_ONE_PER_USER)  
-- Automatic logging and reports  
-- Photo posts supported  
-- Send code to DM on repeated request  
+Photo posts supported
 
----
+Send code to DM on repeated request
 
-## 🧩 Main Commands
+🧩 Main Commands
+Command	Description
+/codes AAA,BBB,CCC	Upload promo codes
+/post <text>	Publish a drop
+/left	Show remaining codes
+/report	Report for the last drop
+/bind	Bind the group (if not set in .env)
 
-| Command | Description |
-|---------|-------------|
-| `/codes AAA,BBB,CCC` | Upload promo codes |
-| `/post <text>` | Publish a drop |
-| `/left` | Show remaining codes |
-| `/report` | Report for the last drop |
-| `/bind` | Bind the group (if not set in .env) |
-
----
-
-## ⚙️ `.env` Example
-
-```env
 BOT_TOKEN=123:ABC
 ADMIN_IDS=12345
 GLOBAL_ONE_PER_USER=False
@@ -116,3 +108,22 @@ DB_PATH=promo_bot.sqlite3
 INPUT_CHAT_ID=
 OUTPUT_CHAT_ID=
 
+git clone <repo>
+cd TelegramPromocodebot
+pip install -r requirements.txt
+python main.py
+
+
+📦 Tech Stack
+
+Python
+
+Aiogram 3
+
+SQLite (WAL + indexes)
+
+dotenv
+
+📄 License
+
+MIT — free to use and modify.
