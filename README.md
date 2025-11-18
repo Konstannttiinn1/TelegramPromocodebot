@@ -43,3 +43,23 @@ SEND_PM_ON_REPEAT=True
 DB_PATH=promo_bot.sqlite3
 INPUT_CHAT_ID=
 OUTPUT_CHAT_ID=
+
+
+git clone <repo>
+cd TelegramPromocodebot
+pip install -r requirements.txt
+python main.py
+
+📦 Стек технологий
+
+Python
+
+Aiogram 3
+
+SQLite (WAL + индексы)
+
+dotenv
+
+📄 Лицензия
+
+MIT — свободное использование и модификация разрешены.
