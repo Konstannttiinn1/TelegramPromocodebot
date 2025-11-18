@@ -63,3 +63,56 @@ dotenv
 📄 Лицензия
 
 MIT — свободное использование и модификация разрешены.
+
+
+
+---
+
+# 🇬🇧 **English Version**
+```md
+# Telegram PromoCode Bot
+
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
+![Aiogram](https://img.shields.io/badge/Aiogram-3.x-0A84FF?logo=telegram)
+![License](https://img.shields.io/badge/License-MIT-green)
+![SQLite](https://img.shields.io/badge/SQLite-Automated-lightgrey?logo=sqlite)
+
+Telegram bot for giveaways, drops, and automated promo code distribution.  
+Minimal commands — maximum efficiency.
+
+---
+
+## ✨ Features
+- Import batches of promo codes  
+- Publish a “drop” with a claim button  
+- Unique code for each user  
+- Optional: global one-code-per-user limit (GLOBAL_ONE_PER_USER)  
+- Automatic logging and reports  
+- Photo posts supported  
+- Send code to DM on repeated request  
+
+---
+
+## 🧩 Main Commands
+
+| Command | Description |
+|---------|-------------|
+| `/codes AAA,BBB,CCC` | Upload promo codes |
+| `/post <text>` | Publish a drop |
+| `/left` | Show remaining codes |
+| `/report` | Report for the last drop |
+| `/bind` | Bind the group (if not set in .env) |
+
+---
+
+## ⚙️ `.env` Example
+
+```env
+BOT_TOKEN=123:ABC
+ADMIN_IDS=12345
+GLOBAL_ONE_PER_USER=False
+SEND_PM_ON_REPEAT=True
+DB_PATH=promo_bot.sqlite3
+INPUT_CHAT_ID=
+OUTPUT_CHAT_ID=
+
